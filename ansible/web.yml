@@ -1,0 +1,123 @@
+---
+- name: Install Apache, php 7.3 and the latest WP
+  hosts: webs
+  become: true
+  remote_user: centos
+  connection: ssh
+  gather_facts: yes
+  vars_files:
+    - variables.yml
+  vars:
+    playbook_version: 0.1
+    mysql_port: 3306
+    wp_db_name: 'WordPress'
+    wp_db_user: 'WPuser-vQ93NM'
+    wp_db_pass: 'N59M7Vhdwm6jPp6b'
+    wp_db_preffix: 'wpcmncc_'
+    wp_username: 'ceman'
+    wp_password: 'GfvmRXkvC33x8F2b'
+    wp_domain: 'wp.ceman.cc'
+    server_admin: 'dc@gmail.com'
+    remi_repo_url: "http://rpms.remirepo.net/enterprise/remi-release-{{ ansible_distribution_major_version }}.rpm"
+    remi_repo_gpg_key_url: "http://rpms.remirepo.net/RPM-GPG-KEY-remi"
+    remi_repofile_path: "/etc/yum.repos.d/remi.repo"
+  tasks:
+    - name: Install yum-utils
+      action: yum name=yum-utils state=installed
+    - name: Check if REMI repo is already configured.
+      stat: path={{ remi_repofile_path }}
+      register: remi_repofile_result
+    - name: Install remi repo.
+      yum:
+        name: "{{ remi_repo_url }}" 
+        state: present
+      register: result
+      when: not remi_repofile_result.stat.exists
+    - name: Import remi GPG key.
+      rpm_key:
+        key: "{{ remi_repo_gpg_key_url }}"
+        state: present
+      when: not remi_repofile_result.stat.exists
+    - name: enable remi-php73
+      raw: yum-config-manager --enable remi-php73
+    - name: Install Apache, php with modules, mariadb client and git.
+      yum:
+        name:
+          - httpd
+          - php
+          - php-common
+          - php-mysql
+          - php-gd
+          - php-xml
+          - php-mbstring
+          - php-mcrypt
+          - mariadb
+          - git
+        state: latest
+    - selinux:
+        policy: targeted
+        state: permissive
+    - name: Add centos to apache group
+      user:
+        name: centos
+        groups: apache
+        append: yes
+    - name: Copy SSH private key
+      copy:
+        src: /home/centos/.ssh/id_rsa
+        dest: ~/.ssh/id_rsa
+        mode: u=rw,g=,o=
+      become_user: centos
+    - name: Forcibly reload session to update user's permissions
+      meta: reset_connection
+      become_user: centos
+    - name: Creates directory
+      file:
+        path: /var/www/vhosts/{{ wp_domain }}/htdocs
+        state: directory
+        owner: apache
+        group: apache
+        mode: u=rwX,g=rX,o=rX
+        recurse: yes   
+    - name: Check if {{ wp_domain }}.conf already exist
+      stat: path=/etc/httpd/conf.d/{{wp_domain }}.conf
+      register: vhost-conf_result
+    - name: Create vhost file
+      copy:
+        dest: "/etc/httpd/conf.d/{{ wp_domain }}.conf"
+        content: |
+          <VirtualHost *:80>
+          ServerAdmin {{ server_admin }}
+          DocumentRoot /var/www/vhosts/{{ wp_domain }}/htdocs
+          ServerName {{ wp_domain }}
+          ErrorLog /var/log/httpd/{{ wp_domain }}.com-error-log
+          CustomLog /var/log/httpd/{{ wp_domain }}-access-log common
+          </VirtualHost>
+    - name: Download and setup wp-cli
+      get_url:
+        url="https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar"
+        dest="/usr/local/bin/wp"
+        force_basic_auth=yes
+        mode=0755
+    - name: Set ownership and permissions on vhost folder
+      file:
+        dest: /var/www/vhosts
+        owner: apache
+        group: apache
+        mode: u=rwX,g=rwX,o=rX
+        recurse: yes   
+    - name: Start httpd service
+      service:
+        name: httpd
+        state: restarted
+        enabled: yes
+    - name: Disabling host key checking
+      copy:
+        dest: "~/.ssh/config"
+        content: |
+          CheckHostIP no
+          Host 10.0.*.*
+          StrictHostKeyChecking no
+          LogLevel=quiet
+          UserKnownHostsFile=/dev/null
+      become_user: centos

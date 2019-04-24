@@ -1,0 +1,153 @@
+---
+- name: Install MySQL 10.1 Galera cluster
+  hosts: dbs
+  become: true
+  remote_user: centos
+  connection: ssh
+  gather_facts: yes
+  vars:
+    playbook_version: 0.1
+    mysql_root_username: root
+    mysql_root_password: "2AmkvTZJLSQu49Pt"
+    mysql_port: 3306
+    wp_db_name: 'WordPress'
+    wp_db_user: 'WPuser-vQ93NM'
+    wp_db_pass: 'N59M7Vhdwm6jPp6b'
+  tasks:
+    - name: Install epel-repo
+      yum: 
+        name: epel-release
+        state: present
+    - name: Install MariaDB repo
+      copy:
+        dest: "/etc/yum.repos.d/MariaDB.repo"
+        content: |
+          # MariaDB 10.1 CentOS repository list - created 2019-04-20 10:39 UTC
+          # http://downloads.mariadb.org/mariadb/repositories/
+          [mariadb]
+          name = MariaDB
+          baseurl = http://yum.mariadb.org/10.1/centos7-amd64
+          gpgkey=https://yum.mariadb.org/RPM-GPG-KEY-MariaDB
+          gpgcheck=1       
+    - name: yum update
+      yum:
+        name: '*'
+        state: latest
+    - name: Install prerequisites and MariaDB
+      yum:
+        name:
+          - "@Development tools"
+          - rsync
+          - socat
+          - MySQL-python
+          - python
+          - MariaDB-server
+          - MariaDB-client
+        state: latest
+    - name: Start & Enable MariaDB Server to start on boot
+      service: name=mysqld state=started enabled=yes
+    - selinux:
+        policy: targeted
+        state: permissive
+    - selinux:
+        state: disabled
+    # Manual "mysql_secure_installation"
+    - name: Sets the root password 
+      mysql_user: user=root password="{{ mysql_root_password }}" host=localhost
+      ignore_errors: True # If the password is already changed, continue with script. Temporary idempotent solution.
+    - name: Check if /home/centos/.my.conf already exist
+      stat: path=/home/centos/.my.conf
+      register: root_my_conf_result
+    - name: Avoid terminal password
+      copy:
+        dest: "/home/centos/.my.cnf"
+        content: |
+          [client]
+          user="{{ mysql_root_username }}"
+          password="{{ mysql_root_password }}"
+        owner: centos
+        mode: 0600
+      when: not root_my_conf_result.stat.exists
+    - name: Secures the MySQL root users
+      mysql_user: user="root" host={{ item }} password="{{ mysql_root_password }}"
+      with_items:
+        - "{{ ansible_fqdn }}"
+        - 127.0.0.1
+        - ::1
+      become_user: centos
+    - name: Deletes anonymous MySQL server user for ansible_fqdn
+      mysql_user: user="" host="{{ ansible_fqdn }}" state="absent"
+      become_user: centos
+    - name: Deletes anonymous MySQL server user for localhost
+      mysql_user: user="" state="absent"
+      become_user: centos
+    - name: Removes the MySQL test database
+      mysql_db: db=test state=absent
+      become_user: centos
+    - name: Create the database for wordpress app
+      mysql_db: name={{ wp_db_name }} state=present
+      become_user: centos
+    - name: Create the Application user for the wordpress database
+      mysql_user: name={{ wp_db_user }} password={{ wp_db_pass }} priv='{{ wp_db_name }}.*:ALL,GRANT' host='%' state=present
+      become_user: centos
+    # Set cluster.cnf on DB1
+    - name: Check if /etc/my.cnf.d/cluster.cnf already exist
+      stat: path=/etc/my.cnf.d/cluster.cnf
+      register: cluster_cnf_db1_result
+    - name: cluster.cnf for DB1
+      copy:
+        dest: "/etc/my.cnf.d/cluster.cnf"
+        content: |
+          [galera]
+          wsrep_on=ON
+          wsrep_provider=/usr/lib64/galera/libgalera_smm.so
+          wsrep_cluster_address='gcomm://{{ hostvars[groups['dbs'][0]].ansible_default_ipv4.address }},{{ hostvars[groups['dbs'][1]].ansible_default_ipv4.address }}'
+          wsrep_cluster_name='galera'
+          wsrep_node_address='{{ hostvars[groups['dbs'][0]].ansible_default_ipv4.address }}'
+          wsrep_node_name='mysqlcluster01'
+          wsrep_sst_method=rsync
+          binlog_format=row
+          default_storage_engine=InnoDB
+          innodb_autoinc_lock_mode=2
+          bind-address=0.0.0.0
+      when: 
+        - ansible_hostname == hostvars[groups['dbs'][0]].ansible_hostname
+        - not cluster_cnf_db1_result.stat.exists
+    # Set cluster.cnf on DB2
+    - name: Check if /etc/my.cnf.d/cluster.cnf already exist
+      stat: path=/etc/my.cnf.d/cluster.cnf
+      register: cluster_cnf_db2_result
+    - name: cluster.cnf for DB2
+      copy:
+        dest: "/etc/my.cnf.d/cluster.cnf"
+        content: |
+          [galera]
+          wsrep_on=ON
+          wsrep_provider=/usr/lib64/galera/libgalera_smm.so
+          wsrep_cluster_address='gcomm://{{ hostvars[groups['dbs'][0]].ansible_default_ipv4.address }},{{ hostvars[groups['dbs'][1]].ansible_default_ipv4.address }}'
+          wsrep_cluster_name='galera'
+          wsrep_node_address='{{ hostvars[groups['dbs'][1]].ansible_default_ipv4.address }}'
+          wsrep_node_name='mysqlcluster02'
+          wsrep_sst_method=rsync
+          binlog_format=row
+          default_storage_engine=InnoDB
+          innodb_autoinc_lock_mode=2
+          bind-address=0.0.0.0
+      when: 
+        - ansible_hostname == hostvars[groups['dbs'][1]].ansible_hostname
+        - not cluster_cnf_db1_result.stat.exists  
+    - name: Stop mysql service on DB1
+      service:
+        name: mysqld
+        state: stopped
+      when: ansible_hostname == hostvars[groups['dbs'][0]].ansible_hostname
+    
+    - name: Start Galera cluster
+      raw: galera_new_cluster
+      when: ansible_hostname == hostvars[groups['dbs'][0]].ansible_hostname
+    
+    - name: Start mysql service
+      service:
+        name: mysqld
+        state: restarted
+      when: ansible_hostname == hostvars[groups['dbs'][1]].ansible_hostname

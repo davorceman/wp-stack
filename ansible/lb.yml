@@ -1,0 +1,34 @@
+---
+- name: Install HAproxy LB
+  hosts: lb
+  become: true
+  remote_user: centos
+  connection: ssh
+  gather_facts: yes
+  vars_files:
+    - variables.yml
+  vars:
+    playbook_version: 0.1
+  tasks:
+    - name: Install HAProxy
+      yum:
+        name:
+          - haproxy
+        state: latest
+    - name: Configure HAProxy
+      copy:
+        src: haproxy.template
+        dest: /etc/haproxy/haproxy.cfg
+        backup: yes
+    - name: Set backend hosts
+      blockinfile:
+        path: /etc/haproxy/haproxy.cfg
+        block: |
+              server wp1 {{ web1_host }}:80 check
+              server wp2 {{ web2_host }}:80 check
+        insertafter: "backend wp"
+    - name: Start and enableHAProxy
+      service:
+        name: haproxy
+        state: started
+        enabled: yes

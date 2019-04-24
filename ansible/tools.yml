@@ -1,0 +1,35 @@
+---
+- name: Install Jenkins
+  hosts: 127.0.0.1
+  become: yes
+  connection: local
+  vars_files:
+    - variables.yml
+  vars:
+    jenkins_repo_url: "http://pkg.jenkins.io/redhat-stable/jenkins.repo"
+  tasks:
+  - name: Install Jenkins repo
+    get_url: url={{ jenkins_repo_url }} dest=/etc/yum.repos.d/jenkins.repo
+  - rpm_key:
+      state: present
+      key: http://pkg.jenkins.io/redhat-stable/jenkins.io.key
+  - name: Install Java and Jenkins
+    yum:
+      name:
+        - java-1.8.0-openjdk
+        - jenkins
+        - git
+  - name: Start and enable Jenkins
+    service:
+      name: jenkins
+      state: started
+      enabled: yes
+  - name: Disabling host key checking
+    copy:
+      dest: "~/.ssh/config"
+      content: |
+        CheckHostIP no
+        Host 10.0.*.*
+        StrictHostKeyChecking no
+        LogLevel=quiet
+        UserKnownHostsFile=/dev/null

@@ -5,6 +5,8 @@ Purpose of this project is practicing and learning AWS, CI/CD, Jenkins Terraform
 Stack will looks like this:  
 https://www.lucidchart.com/invitations/accept/b58d827c-668d-4fd4-a1f0-a2bd519c867d  
 
+![alt text](https://github.com/davorceman/wp-stack/blob/master/chart.png)
+
 Short guide
  - Install terraform. Ansible is not mandatory, because all scripts will be executed from "Tools" server.
  - Create AWS user and set profile with "aws configure"

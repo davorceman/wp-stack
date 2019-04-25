@@ -115,9 +115,5 @@
       copy:
         dest: "~/.ssh/config"
         content: |
-          CheckHostIP no
-          Host 10.0.*.*
           StrictHostKeyChecking no
-          LogLevel=quiet
-          UserKnownHostsFile=/dev/null
       become_user: centos

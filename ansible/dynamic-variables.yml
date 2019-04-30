@@ -1,0 +1,9 @@
+---
+db1_host: 10.0.3.188
+db2_host: 10.0.4.89
+web1_host: 10.0.3.139
+web2_host: 10.0.4.32
+lb1_instanceID: i-0087d46091e1100b9
+lb2_instanceID: i-0c29a0e00065f94b4
+lb1_EIP: 18.184.91.97
+lb1_EIP_assoc: eipassoc-0908eeb207d00b8d6

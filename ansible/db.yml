@@ -5,14 +5,9 @@
   remote_user: centos
   connection: ssh
   gather_facts: yes
-  vars:
-    playbook_version: 0.1
-    mysql_root_username: root
-    mysql_root_password: "2AmkvTZJLSQu49Pt"
-    mysql_port: 3306
-    wp_db_name: 'WordPress'
-    wp_db_user: 'WPuser-vQ93NM'
-    wp_db_pass: 'N59M7Vhdwm6jPp6b'
+  vars_files:
+    - variables.yml
+    - dynamic-variables.yml
   tasks:
     - name: Install epel-repo
       yum: 
@@ -141,11 +136,9 @@
         name: mysqld
         state: stopped
       when: ansible_hostname == hostvars[groups['dbs'][0]].ansible_hostname
-    
     - name: Start Galera cluster
       raw: galera_new_cluster
       when: ansible_hostname == hostvars[groups['dbs'][0]].ansible_hostname
-    
     - name: Start mysql service
       service:
         name: mysqld

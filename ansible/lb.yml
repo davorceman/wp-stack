@@ -1,25 +1,67 @@
 ---
 - name: Install HAproxy LB
-  hosts: lb
+  hosts: lbs
   become: true
   remote_user: centos
   connection: ssh
   gather_facts: yes
   vars_files:
     - variables.yml
-  vars:
-    playbook_version: 0.1
+    - dynamic-variables.yml
   tasks:
-    - name: Install HAProxy
+    - name: Install epel-repo
+      yum: 
+        name: epel-release
+        state: present  
+    - name: Install HAProxy and keepalived
       yum:
         name:
           - haproxy
+          - keepalived
+          - python
+          - python-pip
         state: latest
+    - name: install the package, force upgrade
+      pip: 
+        name: awscli
+        state: latest
+    - name: Ensures /root/.aws dir exists
+      file:
+        path: /root/.aws
+        state: directory        
+    - name: Setup awscli config
+      copy:
+        dest: "/root/.aws/config"
+        content: |
+          [profile terransible]
+          region = {{ aws_region }}
+        mode: u=rwx,g=,o=
+    - name: Setup awscli credentials
+      copy:
+        dest: "/root/.aws/credentials"
+        content: |
+          [terransible]
+          aws_access_key_id = {{ aws_access_key_id }}
+          aws_secret_access_key = {{ aws_secret_access_key }}
+        mode: u=rwx,g=,o=
+    - selinux:
+        policy: targeted
+        state: permissive
+    - selinux:
+        state: disabled
     - name: Configure HAProxy
       copy:
         src: haproxy.template
         dest: /etc/haproxy/haproxy.cfg
         backup: yes
+    - name: Ensures /etc/haproxy/errorfiles dir exists
+      file:
+        path: /etc/haproxy/errorfiles
+        state: directory
+    - name: HAProxy 503 error file
+      copy:
+        src: 503.template
+        dest: /etc/haproxy/errorfiles/503.http
     - name: Set backend hosts
       blockinfile:
         path: /etc/haproxy/haproxy.cfg
@@ -30,5 +72,84 @@
     - name: Start and enableHAProxy
       service:
         name: haproxy
+        state: started
+        enabled: yes
+    # Configure keepalived
+    - name: copy keepalived.conf template
+      copy:
+        src: keepalived.template
+        dest: /etc/keepalived/keepalived.conf
+        backup: yes
+    - name: Set failover.sh for LB1
+      copy:
+        dest: "/usr/libexec/keepalived/failover.sh"
+        content: |
+          #!/bin/bash
+          /usr/bin/aws ec2 disassociate-address --public-ip {{ lb1_EIP }} --profile {{ aws_profile }}
+          /usr/bin/aws ec2 associate-address --public-ip {{ lb1_EIP }} --instance-id {{ lb1_instanceID }} --profile {{ aws_profile }}
+        mode: u=rwx,g=,o=
+      when: ansible_hostname == hostvars[groups['lbs'][0]].ansible_hostname
+    - name: Set failover.sh for LB2
+      copy:
+        dest: "/usr/libexec/keepalived/failover.sh"
+        content: |
+          #!/bin/bash
+          /usr/bin/aws ec2 disassociate-address --public-ip {{ lb1_EIP }} --profile {{ aws_profile }}
+          /usr/bin/aws ec2 associate-address --public-ip {{ lb1_EIP }} --instance-id {{ lb2_instanceID }} --profile {{ aws_profile }}
+        mode: u=rwx,g=,o=
+      when: ansible_hostname == hostvars[groups['lbs'][1]].ansible_hostname
+    - name: Set MASTER state
+      replace:
+        path: /etc/keepalived/keepalived.conf
+        regexp: '^    state.*$'
+        replace: '    state MASTER'
+        backup: yes
+      when: ansible_hostname == hostvars[groups['lbs'][0]].ansible_hostname
+    - name: Set unicast_src_ip for MASTER
+      replace:
+        path: /etc/keepalived/keepalived.conf
+        regexp: '^    unicast_src_ip.*$'
+        replace: '    unicast_src_ip {{ hostvars[groups["lbs"][0]].ansible_default_ipv4.address }}'
+        backup: yes
+      when: ansible_hostname == hostvars[groups['lbs'][0]].ansible_hostname
+    - name: Set unicast_peer for MASTER
+      replace:
+        path: /etc/keepalived/keepalived.conf
+        regexp: '^        xxxx.*$'
+        replace: '        {{ hostvars[groups["lbs"][1]].ansible_default_ipv4.address }}'
+        backup: yes
+      when: ansible_hostname == hostvars[groups['lbs'][0]].ansible_hostname
+    # Configure keepalived on BACKUP server
+    - name: Set BACKUP state
+      replace:
+        path: /etc/keepalived/keepalived.conf
+        regexp: '^    state.*$'
+        replace: '    state BACKUP'
+        backup: yes
+      when: ansible_hostname == hostvars[groups['lbs'][1]].ansible_hostname
+    - name: Set BACKUP priority
+      replace:
+        path: /etc/keepalived/keepalived.conf
+        regexp: '^    priority.*$'
+        replace: '    priority 100'
+        backup: yes
+      when: ansible_hostname == hostvars[groups['lbs'][1]].ansible_hostname      
+    - name: Set unicast_src_ip for BACKUP
+      replace:
+        path: /etc/keepalived/keepalived.conf
+        regexp: '^    unicast_src_ip.*$'
+        replace: '    unicast_src_ip {{ hostvars[groups["lbs"][1]].ansible_default_ipv4.address }}'
+        backup: yes
+      when: ansible_hostname == hostvars[groups['lbs'][1]].ansible_hostname
+    - name: Set unicast_peer for BACKUP
+      replace:
+        path: /etc/keepalived/keepalived.conf
+        regexp: '^        xxxx.*$'
+        replace: '        {{ hostvars[groups["lbs"][0]].ansible_default_ipv4.address }}'
+        backup: yes
+      when: ansible_hostname == hostvars[groups['lbs'][1]].ansible_hostname
+    - name: Start and enable keepalived
+      service:
+        name: keepalived
         state: started
         enabled: yes

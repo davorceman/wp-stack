@@ -5,8 +5,7 @@
   connection: local
   vars_files:
     - variables.yml
-  vars:
-    jenkins_repo_url: "http://pkg.jenkins.io/redhat-stable/jenkins.repo"
+    - dynamic-variables.yml
   tasks:
   - name: Install Jenkins repo
     get_url: url={{ jenkins_repo_url }} dest=/etc/yum.repos.d/jenkins.repo

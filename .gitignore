@@ -7,3 +7,6 @@
 
 # Crash log files
 crash.log
+
+# Ansible variables
+ansible/variables.yml

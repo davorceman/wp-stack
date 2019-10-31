@@ -4,7 +4,7 @@ provider "aws" {
 }
 
 ################################################################
-##### VPC, IGW, Route Tables, Subnets, Subnet Associations, NAT Gateway #####
+##### VPC, IGW, Route Tables, Subnets, Subnet Associations, NAT Gateway ######
 
 resource "aws_vpc" "symphony_vpc" {
   cidr_block = "${var.vpc_cidr}"
